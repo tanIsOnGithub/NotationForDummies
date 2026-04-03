@@ -31,16 +31,17 @@ wCenteredX :: Float; wCenteredY :: Float; (wCenteredX, wCenteredY) = ((-wSizeX) 
 
 -- notation
 gapBetweenStaves  :: Float; gapBetweenStaves  = wSizeY / 60
-topperToSystemGap :: Float; topperToSystemGap = wSizeY * 4 / 15      -- difference between the top of the window and the highest staff line
-startOfNotes      :: Float; startOfNotes      = wSizeX / 32          -- x-coordinate of the beginning of notes on a staff line
-noteHeadRadius    :: Float; noteHeadRadius    = gapBetweenStaves / 2 -- radius of a notehead which is approximated by a circle
+topperToSystemGap :: Float; topperToSystemGap = wSizeY * 4 / 15        -- difference between the top of the window and the highest staff line
+startOfNotes      :: Float; startOfNotes      = wSizeX / 32            -- x-coordinate of the beginning of notes on a staff line
+spaceBetweenNotes :: Float; spaceBetweenNotes = gapBetweenStaves * 2.5 -- horizontal space between two notes
+noteHeadRadius    :: Float; noteHeadRadius    = gapBetweenStaves / 2   -- radius of a notehead which is approximated by a circle
 pixelRoundingErrorOffset :: Float; pixelRoundingErrorOffset = 3 -- aligns the noteheads perfectly inside of drawNotation
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 -- entering an empty String results in the note: { noteNumber = -1, accidental = NoAccidental, octave = 4, noteLength = 4, isDotted = False }
-notation2noteVal :: Notation -> NoteValue
-notation2noteVal note = NoteValue  
+noteString2noteVal :: Notation -> NoteValue
+noteString2noteVal note = NoteValue  
     { noteNumber = locateNoteName (takeWhile (\c -> c `notElem` "0123456789") note) noteNames 
     , octave     = if noteOctaveAndLength        == "" then 4 else read [head noteOctaveAndLength] -- default is the octave of c'' aka c4
     , accidental = acci
@@ -48,7 +49,7 @@ notation2noteVal note = NoteValue
     , isDotted   = if note == [] then False else (head $ reverse note) == '.' }                    -- default: False
     where noteOctaveAndLength = dropWhile (\c -> c `notElem` "0123456789") note -- also includes the dot if the not is dotted
           locateNoteName name (n : ns) = if name `elem` n then 12 - length ns else locateNoteName name ns
-          locateNoteName name [      ] = (-1) -- returning -1 if the name does not match like "h" 
+          locateNoteName _    [      ] = (-1) -- returning -1 if the name does not match like "h" 
           noteNames = [["c"], ["c#", "db"], ["d"], ["d#", "eb"], ["e"], ["f"], ["f#", "gb"], ["g"], ["g#", "ab"], ["a"], ["a#", "bb"], ["b"]]
           acci = if length note <= 1 then NoAccidental else case head $ drop 1 note of -- default: NoAccidental
               'b' -> Flat
@@ -58,22 +59,28 @@ notation2noteVal note = NoteValue
 -- main functions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Initial world state
 initialWorld :: World
-initialWorld = World ["c4"]
+initialWorld = World ["c", "d", "e"]
 
 -- Convert world state to a picture
 drawWorld :: World -> Picture
-drawWorld  (World w) = pictures $ staveLines : map drawNotation w
+drawWorld  (World w) = pictures $ staveLines : drawNotation w 0
    where staveLines = color white . pictures . map makeLine $ staveLinesPositions
          makeLine ly = line [(wCenteredX, ly), (wCenteredX + wSizeX, ly)] 
          -- drawing the staff lines from top to bottom
          staveLinesPositions = map (\n -> wSizeY / 2 - topperToSystemGap - n * gapBetweenStaves) [0..4]
 
-drawNotation :: Notation -> Picture
-drawNotation _ = color white . pictures $ [noteStem, noteHead]
-    -- position of the octave above middle C, c4
-    where (cx, cy) = ((-wSizeX) / 2 + startOfNotes, wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset)
-          noteStem = line [(cx - noteHeadRadius, cy), (cx - noteHeadRadius, cy - gapBetweenStaves * 3.5)]
-          noteHead = translate cx cy . circleSolid $ noteHeadRadius
+drawNotation :: [Notation] -> Float -> [Picture]
+drawNotation [                   ] _ = []
+drawNotation (noteString  : notes) i = (color white . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1)
+          -- position of the octave above middle C: c4
+    where cx = (-wSizeX) / 2 + startOfNotes
+          cy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
+          -- position of the current note
+          x = cx + i * spaceBetweenNotes
+          y = cy + ((fromIntegral . noteNumber . noteString2noteVal $ noteString) - 1) * noteHeadRadius / 2
+          noteStem = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
+          -- moving the head according to t
+          noteHead = translate x y . circleSolid $ noteHeadRadius
 
 -- not updating the world via events yet
 handleEvent :: Event -> World -> World
