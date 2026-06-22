@@ -1,3 +1,4 @@
+-- TODO: finish editNote
 module Main where
 
 import Graphics.Gloss
@@ -13,20 +14,26 @@ type Notation = String
 -- the accidental of a note which is either flat, sharp or non-existant (NoAccidental)
 data Accidental = NoAccidental | Flat | Sharp deriving (Show)
 
+-- structure for the content of a note (without graphical elements)
 data NoteValue = NoteValue 
     { noteNumber :: Int         -- conversion of notenames into numbers from 1 (c) to 12 (b) where 13 would again be c
-    , accidental :: Accidental  -- conversion of notenames into numbers from 1 (c) to 12 (b) where 13 would again be c
+    , accidental :: Accidental  -- see the corresponding datatype (Accidental) 
     , octave     :: Int         -- scientific octave, middle C is in the fourth octave (default: 4)
     , noteLength :: Int         -- corresponds to musescore input like 4 for a quarter note (default: 4)
     , isDotted   :: Bool        -- whether the note is dotted meaning its length is multiplied by 1.5
     } deriving (Show)
 
 -- structure contains everything 
-data World = World [Notation]
+data World = World 
+    -- list of all notes as a string
+    [NoteValue]  
+    -- index of the currently selecte note
+    -- (-1) means no selection
+    Int         
 
 -- spacing constants -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- window
-wSizeX     :: Float; wSizeY     :: Float; (wSizeX    , wSizeY    ) = (1600.0, 900.0) -- window sizes in both dimensions as FLOATS
+wSizeX     :: Float; wSizeY     :: Float; (wSizeX    , wSizeY    ) = (3200.0, 1800.0) -- window sizes in both dimensions as FLOATS
 wCenteredX :: Float; wCenteredY :: Float; (wCenteredX, wCenteredY) = ((-wSizeX) / 2, (-wSizeY) / 2)
 
 -- notation
@@ -35,9 +42,13 @@ topperToSystemGap :: Float; topperToSystemGap = wSizeY * 4 / 15        -- differ
 startOfNotes      :: Float; startOfNotes      = wSizeX / 32            -- x-coordinate of the beginning of notes on a staff line
 spaceBetweenNotes :: Float; spaceBetweenNotes = gapBetweenStaves * 2.5 -- horizontal space between two notes
 noteHeadRadius    :: Float; noteHeadRadius    = gapBetweenStaves / 2   -- radius of a notehead which is approximated by a circle
-pixelRoundingErrorOffset :: Float; pixelRoundingErrorOffset = 3 -- aligns the noteheads perfectly inside of drawNotation
+pixelRoundingErrorOffset :: Float; pixelRoundingErrorOffset = 7 -- aligns the noteheads perfectly inside of drawNotation
+selectionColor :: Color; selectionColor = violet -- color of selected notes
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+editNote :: [NoteValue] -> Int -> NoteValue -> [NoteValue]
+editNote notes i n = notes 
 
 -- entering an empty String results in the note: { noteNumber = -1, accidental = NoAccidental, octave = 4, noteLength = 4, isDotted = False }
 noteString2noteVal :: Notation -> NoteValue
@@ -59,32 +70,51 @@ noteString2noteVal note = NoteValue
 -- main functions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Initial world state
 initialWorld :: World
-initialWorld = World ["c", "d", "e"]
+initialWorld = World [ noteString2noteVal "c"
+                     , noteString2noteVal "d"
+                     , noteString2noteVal "e" ] 
+                     (0)
 
 -- Convert world state to a picture
 drawWorld :: World -> Picture
-drawWorld  (World w) = pictures $ staveLines : drawNotation w 0
+drawWorld (World w selectionIndex) = pictures $ staveLines : drawNotation w 0 selectionIndex
    where staveLines = color white . pictures . map makeLine $ staveLinesPositions
          makeLine ly = line [(wCenteredX, ly), (wCenteredX + wSizeX, ly)] 
          -- drawing the staff lines from top to bottom
          staveLinesPositions = map (\n -> wSizeY / 2 - topperToSystemGap - n * gapBetweenStaves) [0..4]
 
-drawNotation :: [Notation] -> Float -> [Picture]
-drawNotation [                   ] _ = []
-drawNotation (noteString  : notes) i = (color white . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1)
+drawNotation :: [NoteValue] -> Float -> Int -> [Picture]
+drawNotation [                   ] _ _ = []
+drawNotation (noteVal  : notes) i selectionIndex = 
+          (color noteColor . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1) selectionIndex
           -- position of the octave above middle C: c4
     where cx = (-wSizeX) / 2 + startOfNotes
           cy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
           -- position of the current note
           x = cx + i * spaceBetweenNotes
-          y = cy + ((fromIntegral . noteNumber . noteString2noteVal $ noteString) - 1) * noteHeadRadius / 2
-          noteStem = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
-          -- moving the head according to t
-          noteHead = translate x y . circleSolid $ noteHeadRadius
+          y = cy + ((fromIntegral $ noteNumber noteVal) - 1) * noteHeadRadius / 2
+          -- note head, stem and color
+          noteStem  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
+          noteHead  = translate x y . circleSolid $ noteHeadRadius
+          noteColor = if round i == selectionIndex then selectionColor else white
 
 -- not updating the world via events yet
+-- EventKey Key KeyState Modifiers (Float, Float)    
 handleEvent :: Event -> World -> World
-handleEvent _ world = world
+handleEvent (EventKey (SpecialKey k) Down _ _) world = handleArrowKeys world k
+handleEvent (_                  ) world = world
+
+-- if the user goes left from the leftmost note, it is deselected and can be reselected
+-- by pressing right again
+handleArrowKeys :: World -> SpecialKey -> World
+handleArrowKeys (World w selectionIndex) k = if newIndex == (-2) then World w (-1) else World w newIndex
+    where newIndex = (selectionIndex + selectionIndexMovement)
+          selectionIndexMovement = case k of
+                                     KeyUp    ->   0
+                                     KeyDown  ->   0
+                                     KeyRight ->   1
+                                     KeyLeft  -> (-1)
+                                     _        ->   0
 
 -- not updating the world by time yet
 updateWorld :: Float -> World -> World
