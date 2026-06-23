@@ -1,8 +1,8 @@
--- TODO: finish editNote
 module Main where
 
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
+import Debug.Trace 
 
 -- data types --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- basic structure for a Note stored using either a specific string or the type specifically created for it
@@ -47,8 +47,25 @@ selectionColor :: Color; selectionColor = violet -- color of selected notes
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+-- basic helper function for linked list 
 editNote :: [NoteValue] -> Int -> NoteValue -> [NoteValue]
-editNote notes i n = notes 
+editNote notes i n = start ++ [n] ++ end 
+    where (start, end) = helper $ splitAt i notes 
+          helper (s, (_ : e)) = (s, e)
+          helper (s, [     ]) = (s, [])
+
+-- moving a note vertically (the function expects either KeyDown or 
+-- KeyUp as input for the parameter "k")
+moveNoteV :: [NoteValue] -> Int -> SpecialKey -> [NoteValue]
+moveNoteV notes selectionIndex k = editNote notes selectionIndex editedNote
+    where curNote = notes !! selectionIndex 
+          curNum  = traceWith (\s -> "curNum: " ++ show s) (noteNumber curNote)
+          newNum  = if k == KeyDown then curNum - 1 else curNum + 1
+          editedNote = NoteValue { noteNumber =            traceWith (\s -> "newNum: " ++ show s) newNum
+                                 , accidental = accidental curNote 
+                                 , octave     = octave     curNote
+                                 , noteLength = noteLength curNote
+                                 , isDotted   = isDotted   curNote }
 
 -- entering an empty String results in the note: { noteNumber = -1, accidental = NoAccidental, octave = 4, noteLength = 4, isDotted = False }
 noteString2noteVal :: Notation -> NoteValue
@@ -70,10 +87,7 @@ noteString2noteVal note = NoteValue
 -- main functions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Initial world state
 initialWorld :: World
-initialWorld = World [ noteString2noteVal "c"
-                     , noteString2noteVal "d"
-                     , noteString2noteVal "e" ] 
-                     (0)
+initialWorld = World (map noteString2noteVal ["c"]) (0)
 
 -- Convert world state to a picture
 drawWorld :: World -> Picture
@@ -83,7 +97,7 @@ drawWorld (World w selectionIndex) = pictures $ staveLines : drawNotation w 0 se
          -- drawing the staff lines from top to bottom
          staveLinesPositions = map (\n -> wSizeY / 2 - topperToSystemGap - n * gapBetweenStaves) [0..4]
 
-drawNotation :: [NoteValue] -> Float -> Int -> [Picture]
+drawNotation :: [NoteValue] -> Int -> Int -> [Picture]
 drawNotation [                   ] _ _ = []
 drawNotation (noteVal  : notes) i selectionIndex = 
           (color noteColor . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1) selectionIndex
@@ -91,12 +105,28 @@ drawNotation (noteVal  : notes) i selectionIndex =
     where cx = (-wSizeX) / 2 + startOfNotes
           cy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
           -- position of the current note
-          x = cx + i * spaceBetweenNotes
-          y = cy + ((fromIntegral $ noteNumber noteVal) - 1) * noteHeadRadius / 2
+          x = cx + fromIntegral i * spaceBetweenNotes
+          y = cy + (traceWith (\s -> "adjusted note Number: " ++ show s) . adjustNoteNum . traceWith (\s -> "noteNumber: " ++ show s) . noteNumber $ noteVal) * noteHeadRadius
+          -- converting the raw noteNumber (character to number) to 
+          -- the visual gap from middle c (adjusting for accidentals)
+          adjustNoteNum n = case n of
+                              1  -> 0
+                              2  -> 0
+                              3  -> 1
+                              4  -> 1
+                              5  -> 2
+                              6  -> 3
+                              7  -> 3
+                              8  -> 4
+                              9  -> 4
+                              10 -> 5
+                              11 -> 5
+                              12 -> 6
+                              _  -> (-1) --should never happen
           -- note head, stem and color
           noteStem  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
           noteHead  = translate x y . circleSolid $ noteHeadRadius
-          noteColor = if round i == selectionIndex then selectionColor else white
+          noteColor = if i == selectionIndex then selectionColor else white
 
 -- not updating the world via events yet
 -- EventKey Key KeyState Modifiers (Float, Float)    
@@ -107,8 +137,13 @@ handleEvent (_                  ) world = world
 -- if the user goes left from the leftmost note, it is deselected and can be reselected
 -- by pressing right again
 handleArrowKeys :: World -> SpecialKey -> World
-handleArrowKeys (World w selectionIndex) k = if newIndex == (-2) then World w (-1) else World w newIndex
+handleArrowKeys (World notes selectionIndex) k = if newIndex == (-2) then World editedNotes (-1) else World editedNotes newIndex
     where newIndex = (selectionIndex + selectionIndexMovement)
+          -- changing the current Note 
+          editedNotes = if k == KeyUp || k == KeyDown
+                        then moveNoteV notes selectionIndex k 
+                        else notes
+
           selectionIndexMovement = case k of
                                      KeyUp    ->   0
                                      KeyDown  ->   0
