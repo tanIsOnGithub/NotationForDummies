@@ -1,3 +1,4 @@
+-- TODO: 
 module Main where
 
 import Graphics.Gloss
@@ -43,7 +44,11 @@ startOfNotes      :: Float; startOfNotes      = wSizeX / 32            -- x-coor
 spaceBetweenNotes :: Float; spaceBetweenNotes = gapBetweenStaves * 2.5 -- horizontal space between two notes
 noteHeadRadius    :: Float; noteHeadRadius    = gapBetweenStaves / 2   -- radius of a notehead which is approximated by a circle
 pixelRoundingErrorOffset :: Float; pixelRoundingErrorOffset = 7 -- aligns the noteheads perfectly inside of drawNotation
-selectionColor :: Color; selectionColor = violet -- color of selected notes
+-- coordinates of the position of c in the fourth octave (c'')
+mCx :: Float; mCx = (-wSizeX) / 2 + startOfNotes
+mCy :: Float; mCy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
+-- color of selected notes
+selectionColor :: Color; selectionColor = violet 
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -60,12 +65,23 @@ moveNoteV :: [NoteValue] -> Int -> SpecialKey -> [NoteValue]
 moveNoteV notes selectionIndex k = editNote notes selectionIndex editedNote
     where curNote = notes !! selectionIndex 
           curNum  = traceWith (\s -> "curNum: " ++ show s) (noteNumber curNote)
-          newNum  = if k == KeyDown then curNum - 1 else curNum + 1
-          editedNote = NoteValue { noteNumber =            traceWith (\s -> "newNum: " ++ show s) newNum
-                                 , accidental = accidental curNote 
-                                 , octave     = octave     curNote
+          (newNum, newOctave, newAcci)  = computeNewNote curNum (octave curNote) k
+          editedNote = NoteValue { noteNumber =            traceWith (\s -> "newNum: "    ++ show s) newNum
+                                 , accidental =            newAcci 
+                                 , octave     =            traceWith (\s -> "newOctave: " ++ show s) newOctave
                                  , noteLength = noteLength curNote
                                  , isDotted   = isDotted   curNote }
+
+-- helper for moveNoteV, returns (newNum, newOctave)
+computeNewNote :: Int -> Int -> SpecialKey -> (Int, Int, Accidental)
+computeNewNote num oct k
+    | num == 1  && k == KeyDown = (12, oct - 1, NoAccidental)
+    | num == 12 && k == KeyUp   = ( 1, oct + 1, NoAccidental)
+    | k == KeyDown = (num - 1, oct, if num - 1 `elem` acciNums then Flat  else NoAccidental)
+    | k == KeyUp   = (num + 1, oct, if num + 1 `elem` acciNums then Sharp else NoAccidental)
+    -- note values for sharps and flats
+    where acciNums = [2, 4, 7, 9, 11]
+     
 
 -- entering an empty String results in the note: { noteNumber = -1, accidental = NoAccidental, octave = 4, noteLength = 4, isDotted = False }
 noteString2noteVal :: Notation -> NoteValue
@@ -87,7 +103,7 @@ noteString2noteVal note = NoteValue
 -- main functions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Initial world state
 initialWorld :: World
-initialWorld = World (map noteString2noteVal ["c"]) (0)
+initialWorld = World (map noteString2noteVal ["c3"]) (0)
 
 -- Convert world state to a picture
 drawWorld :: World -> Picture
@@ -100,13 +116,10 @@ drawWorld (World w selectionIndex) = pictures $ staveLines : drawNotation w 0 se
 drawNotation :: [NoteValue] -> Int -> Int -> [Picture]
 drawNotation [                   ] _ _ = []
 drawNotation (noteVal  : notes) i selectionIndex = 
-          (color noteColor . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1) selectionIndex
-          -- position of the octave above middle C: c4
-    where cx = (-wSizeX) / 2 + startOfNotes
-          cy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
-          -- position of the current note
-          x = cx + fromIntegral i * spaceBetweenNotes
-          y = cy + (traceWith (\s -> "adjusted note Number: " ++ show s) . adjustNoteNum . traceWith (\s -> "noteNumber: " ++ show s) . noteNumber $ noteVal) * noteHeadRadius
+    (color noteColor . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1) selectionIndex
+    where x = mCx + fromIntegral i * spaceBetweenNotes
+          y = mCy + (adjustNoteNum . noteNumber $ noteVal) * noteHeadRadius + octY
+          octY = fromIntegral (octave noteVal - 4) * noteHeadRadius * 7 -- adjusting for octave
           -- converting the raw noteNumber (character to number) to 
           -- the visual gap from middle c (adjusting for accidentals)
           adjustNoteNum n = case n of
@@ -121,18 +134,17 @@ drawNotation (noteVal  : notes) i selectionIndex =
                               9  -> 4
                               10 -> 5
                               11 -> 5
-                              12 -> 6
+                              12 -> 6 -- ?
                               _  -> (-1) --should never happen
           -- note head, stem and color
           noteStem  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
           noteHead  = translate x y . circleSolid $ noteHeadRadius
           noteColor = if i == selectionIndex then selectionColor else white
 
--- not updating the world via events yet
 -- EventKey Key KeyState Modifiers (Float, Float)    
 handleEvent :: Event -> World -> World
 handleEvent (EventKey (SpecialKey k) Down _ _) world = handleArrowKeys world k
-handleEvent (_                  ) world = world
+handleEvent (        _          ) world = world
 
 -- if the user goes left from the leftmost note, it is deselected and can be reselected
 -- by pressing right again
