@@ -1,4 +1,4 @@
--- TODO: 
+-- TODO: finish thickLine with the function "polygon" and using sin(45°)
 module Main where
 
 import Graphics.Gloss
@@ -13,7 +13,7 @@ import Debug.Trace
 type Notation = String
 
 -- the accidental of a note which is either flat, sharp or non-existant (NoAccidental)
-data Accidental = NoAccidental | Flat | Sharp deriving (Show)
+data Accidental = NoAccidental | Flat | Sharp deriving (Show, Eq)
 
 -- structure for the content of a note (without graphical elements)
 data NoteValue = NoteValue 
@@ -49,8 +49,18 @@ mCx :: Float; mCx = (-wSizeX) / 2 + startOfNotes
 mCy :: Float; mCy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
 -- color of selected notes
 selectionColor :: Color; selectionColor = violet 
+-- accidentals
+gabBetweenNoteAndAcci :: Float; gabBetweenNoteAndAcci = spaceBetweenNotes / 8 -- needs to be dynamic later (good luck)
+flatHeight  :: Float; flatHeight  = (2 + 0.1) * gapBetweenStaves
+sharpHeight :: Float; sharpHeight = (2 + 0.5) * gapBetweenStaves
+flatWidth   :: Float; flatWidth   = 1.8 * noteHeadRadius
+sharpWidth  :: Float; sharpWidth  = 2.0 * noteHeadRadius
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-- draws a thick line 
+thickLine :: [Point] -> Float -> Picture
+
 
 -- basic helper function for linked list 
 editNote :: [NoteValue] -> Int -> NoteValue -> [NoteValue]
@@ -68,17 +78,18 @@ moveNoteV notes selectionIndex k = editNote notes selectionIndex editedNote
           (newNum, newOctave, newAcci)  = computeNewNote curNum (octave curNote) k
           editedNote = NoteValue { noteNumber =            traceWith (\s -> "newNum: "    ++ show s) newNum
                                  , accidental =            newAcci 
-                                 , octave     =            traceWith (\s -> "newOctave: " ++ show s) newOctave
+                                 , octave     =            newOctave
                                  , noteLength = noteLength curNote
                                  , isDotted   = isDotted   curNote }
 
--- helper for moveNoteV, returns (newNum, newOctave)
+-- helper for moveNoteV, returns (newNum, newOctave, newAccidental)
 computeNewNote :: Int -> Int -> SpecialKey -> (Int, Int, Accidental)
 computeNewNote num oct k
     | num == 1  && k == KeyDown = (12, oct - 1, NoAccidental)
     | num == 12 && k == KeyUp   = ( 1, oct + 1, NoAccidental)
     | k == KeyDown = (num - 1, oct, if num - 1 `elem` acciNums then Flat  else NoAccidental)
     | k == KeyUp   = (num + 1, oct, if num + 1 `elem` acciNums then Sharp else NoAccidental)
+    | otherwise    = (num, oct, NoAccidental) -- should never occur
     -- note values for sharps and flats
     where acciNums = [2, 4, 7, 9, 11]
      
@@ -116,30 +127,35 @@ drawWorld (World w selectionIndex) = pictures $ staveLines : drawNotation w 0 se
 drawNotation :: [NoteValue] -> Int -> Int -> [Picture]
 drawNotation [                   ] _ _ = []
 drawNotation (noteVal  : notes) i selectionIndex = 
-    (color noteColor . pictures $ [noteStem, noteHead]) : drawNotation notes (i + 1) selectionIndex
+    (color noteColor . pictures $ [noteStem, noteHead, noteAccidental]) : drawNotation notes (i + 1) selectionIndex
     where x = mCx + fromIntegral i * spaceBetweenNotes
-          y = mCy + (adjustNoteNum . noteNumber $ noteVal) * noteHeadRadius + octY
-          octY = fromIntegral (octave noteVal - 4) * noteHeadRadius * 7 -- adjusting for octave
+          y = mCy + adjustNoteNum curNoteNum * noteHeadRadius + octY
+          octY = fromIntegral (curNoteOct - 4) * noteHeadRadius * 7 -- adjusting for octave
           -- converting the raw noteNumber (character to number) to 
           -- the visual gap from middle c (adjusting for accidentals)
-          adjustNoteNum n = case n of
-                              1  -> 0
-                              2  -> 0
-                              3  -> 1
-                              4  -> 1
-                              5  -> 2
-                              6  -> 3
-                              7  -> 3
-                              8  -> 4
-                              9  -> 4
-                              10 -> 5
-                              11 -> 5
-                              12 -> 6 -- ?
-                              _  -> (-1) --should never happen
-          -- note head, stem and color
-          noteStem  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
+          -- differenciating between sharps and flats
+          adjustNoteNum n = acciConvertList !! (n - 1)
+          acciConvertList = if accidental noteVal == Sharp 
+                            then [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6]
+                            -- also works for NoAccidental
+                            else [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6] 
+          -- note stem, head and color
+          noteStem  = if curNoteOct >= 4 || (curNoteOct == 3 && curNoteNum == 12) then noteStemDown else noteStemUp 
+          noteStemDown  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
+          noteStemUp    = line [(x + noteHeadRadius, y), (x + noteHeadRadius, y + gapBetweenStaves * 3.5)]
           noteHead  = translate x y . circleSolid $ noteHeadRadius
           noteColor = if i == selectionIndex then selectionColor else white
+          -- accidentals
+          noteAccidental = case curNoteAcci of
+                             Sharp        -> sharp
+                             Flat         -> flat
+                             NoAccidental -> Blank
+          fx = x - noteHeadRadius - gabBetweenNoteAndAcci - flatWidth
+          fy = y - noteHeadRadius
+          flat  = line [(fx, fy + flatHeight), (fx, fy), (fx + flatWidth, fy + noteHeadRadius), (fx, fy + noteHeadRadius * 2)]
+          sharp = Blank
+          -- current note properties
+          (curNoteNum, curNoteOct, curNoteAcci) = (noteNumber noteVal, octave noteVal, accidental noteVal)
 
 -- EventKey Key KeyState Modifiers (Float, Float)    
 handleEvent :: Event -> World -> World
