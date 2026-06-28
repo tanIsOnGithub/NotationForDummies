@@ -1,12 +1,14 @@
+-- Todo: why does lineTick perform a lot thicker for straight lines (wiht zero x or y-delta) compared to 
+--       45 degree angled lines? Unfixable due to pixel errors? Bug, can it be adjusted?
 module Draw (
     drawWorld,
-	wSizeX, wSizeY,
-	wCenteredX, wCenteredY,
+    wSizeX, wSizeY,
+    wCenteredX, wCenteredY,
 ) where
 
 import Types ( World ( World )
              , NoteValue (noteNumber, accidental, octave, noteLength, isDotted)
-			 , Accidental (Flat, Sharp, NoAccidental))
+             , Accidental (Flat, Sharp, NoAccidental))
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 
@@ -37,13 +39,14 @@ flatHeight  :: Float; flatHeight  = (2 + 0.1) * gapBetweenStaves
 sharpHeight :: Float; sharpHeight = (2 + 0.5) * gapBetweenStaves
 flatWidth   :: Float; flatWidth   = 1.8 * noteHeadRadius
 sharpWidth  :: Float; sharpWidth  = 2.0 * noteHeadRadius
+flatThick   :: Float; flatThick   = noteStemWidth * 1.50
 
 -- helper functions 
 
 
 -- draws a thick line 
-thickLine :: Point -> Point -> Float -> Picture
-thickLine a@(x1, y1) d@(x2, y2) thick = polygon [a, b, c, d]
+lineThick :: Point -> Point -> Float -> Picture
+lineThick a@(x1, y1) d@(x2, y2) thick = polygon [a, b, c, d]
     where (ax, ay) = computeAdjust (x2 - x1) (y2 - y1)
           -- straight lines cannot be computed with a trigonometric formula due
           -- to double precision issues
@@ -53,7 +56,25 @@ thickLine a@(x1, y1) d@(x2, y2) thick = polygon [a, b, c, d]
           b = (x1 + ax, y1 + ay)
           c = (x2 + ax, y2 + ay)
 
--- main functions 
+-- draws the accidental given the middle point of the corresponding note
+drawNoteAccidental :: (Float, Float) -> Accidental -> Picture
+drawNoteAccidental (x, y) acci = a
+    where a = case acci of
+                 Sharp        -> Blank
+                 Flat         -> flat
+                 NoAccidental -> Blank
+          fx = x - noteHeadRadius - gabBetweenNoteAndAcci - flatWidth
+          fy = y - noteHeadRadius
+          flat = pictures $ drawFlat flatDrawingPoints
+          flatDrawingPoints = [(fx, fy + flatHeight), (fx, fy), (fx + flatWidth, fy + noteHeadRadius), (fx, fy + noteHeadRadius * 2)]
+          drawFlat (p1 : (p2 : ps)) = lineThick p1 p2 flatThick : drawFlat (p2 : ps)
+          drawFlat [_] = [Blank]
+          -- case that should never happen
+          drawFlat [ ] = [Blank]
+
+
+-- main functions -------------------------------------------------------------------------------------------------------------------------------
+
 
 drawNotation :: [NoteValue] -> Int -> Int -> [Picture]
 drawNotation [                   ] _ _ = []
@@ -72,21 +93,14 @@ drawNotation (noteVal  : notes) i selectionIndex =
                             else [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6] 
           -- note stem, head and color
           noteStem  = if curNoteOct >= 4 || (curNoteOct == 3 && curNoteNum == 12) then noteStemDown else noteStemUp 
-          noteStemDown  = thickLine (x - noteHeadRadius, y) 
+          noteStemDown  = lineThick (x - noteHeadRadius, y) 
                                     (x - noteHeadRadius, y - gapBetweenStaves * 3.5) noteStemWidth
-          noteStemUp    = thickLine (x + noteHeadRadius - noteStemWidth, y) 
+          noteStemUp    = lineThick (x + noteHeadRadius - noteStemWidth, y) 
                                     (x + noteHeadRadius - noteStemWidth, y + gapBetweenStaves * 3.5) noteStemWidth
           noteHead  = translate x y . circleSolid $ noteHeadRadius
           noteColor = if i == selectionIndex then selectionColor else white
           -- accidentals
-          noteAccidental = case curNoteAcci of
-                             Sharp        -> sharp
-                             Flat         -> flat
-                             NoAccidental -> Blank
-          fx = x - noteHeadRadius - gabBetweenNoteAndAcci - flatWidth
-          fy = y - noteHeadRadius
-          flat  = line [(fx, fy + flatHeight), (fx, fy), (fx + flatWidth, fy + noteHeadRadius), (fx, fy + noteHeadRadius * 2)]
-          sharp = Blank
+          noteAccidental = drawNoteAccidental (x, y) curNoteAcci
           -- current note properties
           (curNoteNum, curNoteOct, curNoteAcci) = (noteNumber noteVal, octave noteVal, accidental noteVal)
 
