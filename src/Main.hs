@@ -1,65 +1,23 @@
--- TODO: finish thickLine with the function "polygon" and using sin(45°)
+-- TODO: debug thickLine via pure coding magic lmao
 module Main where
 
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Debug.Trace 
+import Draw (drawWorld, wSizeX, wSizeY, wCenteredX, wCenteredY)
+import Types
 
 -- data types --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- basic structure for a Note stored using either a specific string or the type specifically created for it
 -- the notes in this code are named using the scientific pitch notation with lower-case letters, e.g. "c''" corresponds to "c4"
 -- with added numbers for their length which correspond to the number typed in musescore as in "c#34." denotes 
 -- a dotted c-sharp quater note in the third octave
-type Notation = String
 
--- the accidental of a note which is either flat, sharp or non-existant (NoAccidental)
-data Accidental = NoAccidental | Flat | Sharp deriving (Show, Eq)
+-- spacing constants ----------------------------------------------------------------------------------------------------------------------------
 
--- structure for the content of a note (without graphical elements)
-data NoteValue = NoteValue 
-    { noteNumber :: Int         -- conversion of notenames into numbers from 1 (c) to 12 (b) where 13 would again be c
-    , accidental :: Accidental  -- see the corresponding datatype (Accidental) 
-    , octave     :: Int         -- scientific octave, middle C is in the fourth octave (default: 4)
-    , noteLength :: Int         -- corresponds to musescore input like 4 for a quarter note (default: 4)
-    , isDotted   :: Bool        -- whether the note is dotted meaning its length is multiplied by 1.5
-    } deriving (Show)
-
--- structure contains everything 
-data World = World 
-    -- list of all notes as a string
-    [NoteValue]  
-    -- index of the currently selecte note
-    -- (-1) means no selection
-    Int         
-
--- spacing constants -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--- window
-wSizeX     :: Float; wSizeY     :: Float; (wSizeX    , wSizeY    ) = (3200.0, 1800.0) -- window sizes in both dimensions as FLOATS
-wCenteredX :: Float; wCenteredY :: Float; (wCenteredX, wCenteredY) = ((-wSizeX) / 2, (-wSizeY) / 2)
-
--- notation
-gapBetweenStaves  :: Float; gapBetweenStaves  = wSizeY / 60
-topperToSystemGap :: Float; topperToSystemGap = wSizeY * 4 / 15        -- difference between the top of the window and the highest staff line
-startOfNotes      :: Float; startOfNotes      = wSizeX / 32            -- x-coordinate of the beginning of notes on a staff line
-spaceBetweenNotes :: Float; spaceBetweenNotes = gapBetweenStaves * 2.5 -- horizontal space between two notes
-noteHeadRadius    :: Float; noteHeadRadius    = gapBetweenStaves / 2   -- radius of a notehead which is approximated by a circle
-pixelRoundingErrorOffset :: Float; pixelRoundingErrorOffset = 7 -- aligns the noteheads perfectly inside of drawNotation
--- coordinates of the position of c in the fourth octave (c'')
-mCx :: Float; mCx = (-wSizeX) / 2 + startOfNotes
-mCy :: Float; mCy = wSizeY / 2 - topperToSystemGap - noteHeadRadius / 2 - noteHeadRadius * 2 - pixelRoundingErrorOffset
--- color of selected notes
-selectionColor :: Color; selectionColor = violet 
--- accidentals
-gabBetweenNoteAndAcci :: Float; gabBetweenNoteAndAcci = spaceBetweenNotes / 8 -- needs to be dynamic later (good luck)
-flatHeight  :: Float; flatHeight  = (2 + 0.1) * gapBetweenStaves
-sharpHeight :: Float; sharpHeight = (2 + 0.5) * gapBetweenStaves
-flatWidth   :: Float; flatWidth   = 1.8 * noteHeadRadius
-sharpWidth  :: Float; sharpWidth  = 2.0 * noteHeadRadius
+-- [a, b, c, d] = [(-1485.0,345.5),(-1485.0,347.5),(-1485.0,452.5),(-1485.0,450.5)] 
 
 -- helper functions -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
--- draws a thick line 
-thickLine :: [Point] -> Float -> Picture
 
 
 -- basic helper function for linked list 
@@ -74,9 +32,9 @@ editNote notes i n = start ++ [n] ++ end
 moveNoteV :: [NoteValue] -> Int -> SpecialKey -> [NoteValue]
 moveNoteV notes selectionIndex k = editNote notes selectionIndex editedNote
     where curNote = notes !! selectionIndex 
-          curNum  = traceWith (\s -> "curNum: " ++ show s) (noteNumber curNote)
+          curNum  = noteNumber curNote
           (newNum, newOctave, newAcci)  = computeNewNote curNum (octave curNote) k
-          editedNote = NoteValue { noteNumber =            traceWith (\s -> "newNum: "    ++ show s) newNum
+          editedNote = NoteValue { noteNumber =            newNum
                                  , accidental =            newAcci 
                                  , octave     =            newOctave
                                  , noteLength = noteLength curNote
@@ -111,51 +69,12 @@ noteString2noteVal note = NoteValue
               '#' -> Sharp
               _   -> NoAccidental
 
--- main functions -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- main functions -------------------------------------------------------------------------------------------------------------------------------
+
+
 -- Initial world state
 initialWorld :: World
-initialWorld = World (map noteString2noteVal ["c3"]) (0)
-
--- Convert world state to a picture
-drawWorld :: World -> Picture
-drawWorld (World w selectionIndex) = pictures $ staveLines : drawNotation w 0 selectionIndex
-   where staveLines = color white . pictures . map makeLine $ staveLinesPositions
-         makeLine ly = line [(wCenteredX, ly), (wCenteredX + wSizeX, ly)] 
-         -- drawing the staff lines from top to bottom
-         staveLinesPositions = map (\n -> wSizeY / 2 - topperToSystemGap - n * gapBetweenStaves) [0..4]
-
-drawNotation :: [NoteValue] -> Int -> Int -> [Picture]
-drawNotation [                   ] _ _ = []
-drawNotation (noteVal  : notes) i selectionIndex = 
-    (color noteColor . pictures $ [noteStem, noteHead, noteAccidental]) : drawNotation notes (i + 1) selectionIndex
-    where x = mCx + fromIntegral i * spaceBetweenNotes
-          y = mCy + adjustNoteNum curNoteNum * noteHeadRadius + octY
-          octY = fromIntegral (curNoteOct - 4) * noteHeadRadius * 7 -- adjusting for octave
-          -- converting the raw noteNumber (character to number) to 
-          -- the visual gap from middle c (adjusting for accidentals)
-          -- differenciating between sharps and flats
-          adjustNoteNum n = acciConvertList !! (n - 1)
-          acciConvertList = if accidental noteVal == Sharp 
-                            then [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6]
-                            -- also works for NoAccidental
-                            else [0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6] 
-          -- note stem, head and color
-          noteStem  = if curNoteOct >= 4 || (curNoteOct == 3 && curNoteNum == 12) then noteStemDown else noteStemUp 
-          noteStemDown  = line [(x - noteHeadRadius, y), (x - noteHeadRadius, y - gapBetweenStaves * 3.5)]
-          noteStemUp    = line [(x + noteHeadRadius, y), (x + noteHeadRadius, y + gapBetweenStaves * 3.5)]
-          noteHead  = translate x y . circleSolid $ noteHeadRadius
-          noteColor = if i == selectionIndex then selectionColor else white
-          -- accidentals
-          noteAccidental = case curNoteAcci of
-                             Sharp        -> sharp
-                             Flat         -> flat
-                             NoAccidental -> Blank
-          fx = x - noteHeadRadius - gabBetweenNoteAndAcci - flatWidth
-          fy = y - noteHeadRadius
-          flat  = line [(fx, fy + flatHeight), (fx, fy), (fx + flatWidth, fy + noteHeadRadius), (fx, fy + noteHeadRadius * 2)]
-          sharp = Blank
-          -- current note properties
-          (curNoteNum, curNoteOct, curNoteAcci) = (noteNumber noteVal, octave noteVal, accidental noteVal)
+initialWorld = World (map noteString2noteVal ["c"]) (0)
 
 -- EventKey Key KeyState Modifiers (Float, Float)    
 handleEvent :: Event -> World -> World
